@@ -1,0 +1,51 @@
+name: campus_flow
+description: Professional Student Management System with CRUD and API integration, built using Flutter for Android and iOS platforms.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  intl: ^0.20.2
+  qr_flutter: ^4.1.0  # for QR codes
+  mobile_scanner: ^7.2.0  # for scanning QR codes
+  geolocator: ^14.0.2  # for location
+  permission_handler: ^12.0.3
+  package_info_plus: ^10.1.0
+  sqflite: ^2.3.0 # for local database
+  path_provider: ^2.1.1 # for finding the correct local path
+  path: ^1.9.0
+  http: ^1.1.2
+  provider: ^6.1.1 # for state management
+  flutter_dotenv: ^6.0.1 # for environment variables
+  firebase_core: ^4.10.0 # for Firebase initialization
+  firebase_auth: ^6.5.2
+  cloud_firestore: ^6.5.0
+  firebase_database: ^12.4.2 # for real-time database
+  
+
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/IT.png"
+  adaptive_icon_background: "#667eea"
+  adaptive_icon_foreground: "assets/images/IT.png"
+  remove_alpha_ios: true
+
+flutter:
+  uses-material-design: true
+  assets:
+    - .env
+    - assets/images/
+
