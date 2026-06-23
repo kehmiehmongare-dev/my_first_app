@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==================== USERS COLLECTION ====================
+    match /users/{userId} {
+      allow read, write: if request.auth != null && 
+        request.auth.uid == userId;
+      
+      allow read: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ==================== STUDENTS COLLECTION ====================
+    match /students/{studentId} {
+      // Students read/write own data
+      allow read, write: if request.auth != null && 
+        request.auth.uid == studentId;
+      
+      // Lecturers read students in their course
+      allow read: if request.auth != null && 
+        resource.data.course == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.course;
+      
+      // Admins read/write all
+      allow read, write: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ==================== ATTENDANCE COLLECTION ====================
+    match /attendance/{attendanceId} {
+      // Students read their own attendance
+      allow read: if request.auth != null && 
+        resource.data.studentId == request.auth.uid;
+      
+      // Lecturers read/write their course attendance
+      allow read, write: if request.auth != null && 
+        resource.data.course == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.course;
+      
+      // Admins read/write all
+      allow read, write: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ==================== FEES COLLECTION ====================
+    match /fees/{feeId} {
+      // Students read their own fees
+      allow read: if request.auth != null && 
+        resource.data.studentId == request.auth.uid;
+      
+      // Finance role read/write fees
+      allow read, write: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['finance', 'admin'];
+    }
+
+    // ==================== PAYMENTS COLLECTION ====================
+    match /payments/{paymentId} {
+      // Students read their own payments
+      allow read: if request.auth != null && 
+        resource.data.studentId == request.auth.uid;
+      
+      // Finance/Admin read/write all
+      allow read, write: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['finance', 'admin'];
+    }
+
+    // ==================== NOTIFICATIONS COLLECTION ====================
+    match /notifications/{notificationId} {
+      allow read: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+      
+      allow write: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'lecturer'];
+    }
+  }
+}
