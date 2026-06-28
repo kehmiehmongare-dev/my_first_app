@@ -1,0 +1,78 @@
+Flutter crash report.
+Please report a bug at https://github.com/flutter/flutter/issues.
+
+## command
+
+flutter run
+
+## exception
+
+TimeoutException: TimeoutException after 0:00:05.000000: Future not completed
+
+```
+#0      Future.timeout.<anonymous closure> (dart:async/future_impl.dart:1042:24)
+<asynchronous suspension>
+#1      WebkitDebugger.enable (package:dwds/src/debugging/webkit_debugger.dart:158:9)
+<asynchronous suspension>
+#2      Debugger._initialize (package:dwds/src/debugging/debugger.dart:253:5)
+<asynchronous suspension>
+#3      Debugger.create (package:dwds/src/debugging/debugger.dart:232:5)
+<asynchronous suspension>
+#4      ChromeProxyService.createIsolate (package:dwds/src/services/chrome/chrome_proxy_service.dart:282:22)
+<asynchronous suspension>
+#5      ChromeProxyService.create (package:dwds/src/services/chrome/chrome_proxy_service.dart:144:5)
+<asynchronous suspension>
+#6      ChromeDebugService.start (package:dwds/src/services/chrome/chrome_debug_service.dart:76:32)
+<asynchronous suspension>
+#7      DevHandler._createChromeAppServices (package:dwds/src/handlers/dev_handler.dart:363:26)
+<asynchronous suspension>
+#8      DevHandler.loadAppServices (package:dwds/src/handlers/dev_handler.dart:333:23)
+<asynchronous suspension>
+#9      DevHandler.createDebugConnectionForChrome (package:dwds/src/handlers/dev_handler.dart:654:30)
+<asynchronous suspension>
+#10     Dwds.debugConnection (package:dwds/dart_web_debug_service.dart:68:14)
+<asynchronous suspension>
+#11     WebDevFS.connect.<anonymous closure> (package:flutter_tools/src/isolated/devfs_web.dart:160:17)
+<asynchronous suspension>
+```
+
+## flutter doctor
+
+```
+[32m[✓][39m Flutter (Channel stable, 3.44.0, on Microsoft Windows [Version 10.0.19045.6456], locale en-US) [41.3s]
+    [32m•[39m Flutter version 3.44.0 on channel stable at C:\src\flutter
+    [32m•[39m Upstream repository https://github.com/flutter/flutter.git
+    [32m•[39m Framework revision 559ffa3f75 (5 weeks ago), 2026-05-15 14:13:13 -0700
+    [32m•[39m Engine revision 4c525dac5e
+    [32m•[39m Dart version 3.12.0
+    [32m•[39m DevTools version 2.57.0
+    [32m•[39m Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android, enable-ios,
+      cli-animations, enable-native-assets, enable-swift-package-manager, omit-legacy-version-file, enable-lldb-debugging,
+      enable-uiscene-migration
+
+[32m[✓][39m Windows Version (10 Pro 64-bit, 22H2, 2009) [181.8s]
+
+[31m[☠][39m Android toolchain - develop for Android devices (the doctor check crashed)
+    [31m✗[39m Due to an error, the doctor check did not complete. If the error message below is not helpful, please let us know about this issue at
+      https://github.com/flutter/flutter/issues.
+    [31m✗[39m Exception: Android toolchain - develop for Android devices exceeded maximum allowed duration of 0:04:30.000000
+    [32m•[39m 
+
+[32m[✓][39m Chrome - develop for the web [951ms]
+    [32m•[39m Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[31m[✗][39m Visual Studio - develop Windows apps [935ms]
+    [31m✗[39m Visual Studio not installed; this is necessary to develop Windows apps.
+      Download at https://visualstudio.microsoft.com/downloads/.
+      Please install the "Desktop development with C++" workload, including all of its default components
+
+[32m[✓][39m Connected device (3 available) [4.5s]
+    [32m•[39m Windows (desktop) • windows • windows-x64    • Microsoft Windows [Version 10.0.19045.6456]
+    [32m•[39m Chrome (web)      • chrome  • web-javascript • Google Chrome 149.0.7827.103
+    [32m•[39m Edge (web)        • edge    • web-javascript • Microsoft Edge 149.0.4022.69
+
+[32m[✓][39m Network resources [4.7s]
+    [32m•[39m All expected network resources are available.
+
+[33m![39m Doctor found issues in 2 categories.
+```
