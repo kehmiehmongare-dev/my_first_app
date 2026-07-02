@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:campus_flow/shared/constants/app_colors.dart';
 
 class DeleteConfirmationDialog extends StatelessWidget {
   final String title;

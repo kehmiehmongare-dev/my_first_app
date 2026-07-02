@@ -1,5 +1,4 @@
-import 'package:flutter/material.dart'; // ✅ ADD THIS IMPORT
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
 enum NotificationType {
   attendance,

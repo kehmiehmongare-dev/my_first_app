@@ -11,21 +11,28 @@ class LecturerStudentsScreen extends StatefulWidget {
 }
 
 class _LecturerStudentsScreenState extends State<LecturerStudentsScreen> {
+  // ==================== STATE VARIABLES ====================
   bool _isLoading = true;
-  String? _lecturerId;
-  List<String> _lecturerCourses = [];
-  List<Map<String, dynamic>> _students = [];
-  List<Map<String, dynamic>> _filteredStudents = [];
   String _searchQuery = '';
   String _selectedFilter = 'All';
+  String _unitName = '';
+  String _unitCode = '';
+  String _lecturerName = '';
 
+  List<String> _lecturerUnits = [];
+  List<Map<String, dynamic>> _allStudents = [];
+  List<Map<String, dynamic>> _filteredStudents = [];
+  List<String> _availableFilters = [];
+
+  // ==================== INIT ====================
   @override
   void initState() {
     super.initState();
-    _loadStudents();
+    _loadData();
   }
 
-  Future<void> _loadStudents() async {
+  // ==================== LOAD DATA ====================
+  Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
     try {
@@ -36,9 +43,7 @@ class _LecturerStudentsScreenState extends State<LecturerStudentsScreen> {
         return;
       }
 
-      _lecturerId = user.uid;
-
-      // ✅ STEP 1: Get lecturer's courses
+      // ✅ Get lecturer details
       final lecturerDoc = await FirebaseFirestore.instance
           .collection('lecturers')
           .doc(user.uid)
@@ -51,126 +56,101 @@ class _LecturerStudentsScreenState extends State<LecturerStudentsScreen> {
       }
 
       final lecturerData = lecturerDoc.data() as Map<String, dynamic>;
-      _lecturerCourses = List<String>.from(lecturerData['courses'] ?? []);
+      _lecturerName = lecturerData['displayName'] ?? 'Lecturer';
+      _lecturerUnits = List<String>.from(lecturerData['units'] ?? []);
 
-      // If no courses assigned, get all students
-      if (_lecturerCourses.isEmpty) {
-        // ✅ Get ALL students (for demo/admin purposes)
-        final allStudents =
-            await FirebaseFirestore.instance.collection('students').get();
+      // ✅ Get unit name from first unit (for display)
+      if (_lecturerUnits.isNotEmpty) {
+        _unitCode = _lecturerUnits.first;
+        final unitDoc = await FirebaseFirestore.instance
+            .collection('units')
+            .doc(_unitCode)
+            .get();
+        if (unitDoc.exists) {
+          final unitData = unitDoc.data() as Map<String, dynamic>;
+          _unitName = unitData['name'] ?? _unitCode;
+        } else {
+          _unitName = _unitCode;
+        }
+      }
 
-        _students = allStudents.docs.map((doc) {
-          final data = doc.data();
-          data['id'] = doc.id;
-          return data;
-        }).toList();
-      } else {
-        // ✅ STEP 2: Get students registered in lecturer's courses
-        final studentsSnapshot =
-            await FirebaseFirestore.instance.collection('students').get();
+      // ✅ Get all students
+      final studentsSnapshot =
+          await FirebaseFirestore.instance.collection('students').get();
 
-        _students = studentsSnapshot.docs.map((doc) {
-          final data = doc.data();
-          data['id'] = doc.id;
-          return data;
-        }).toList();
+      _allStudents = studentsSnapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
 
-        // ✅ STEP 3: Filter students by lecturer's courses
-        // A student belongs to lecturer if ANY of their registered units
-        // match the lecturer's courses
-        _students = _students.where((student) {
-          final registeredUnits =
-              List<String>.from(student['registeredUnits'] ?? []);
-          // Check if any registered unit is taught by this lecturer
-          return registeredUnits.any((unit) => _lecturerCourses.contains(unit));
+      // ✅ Filter students by lecturer's units
+      if (_lecturerUnits.isNotEmpty) {
+        _allStudents = _allStudents.where((student) {
+          final registeredUnits = _getRegisteredUnits(student);
+          return registeredUnits.any((unit) => _lecturerUnits.contains(unit));
         }).toList();
       }
 
-      _filteredStudents = List.from(_students);
+      // ✅ Build available filters from student courses
+      final courseCodes = _allStudents
+          .map((s) => s['courseCode']?.toString() ?? '')
+          .where((c) => c.isNotEmpty)
+          .toSet();
+      _availableFilters = ['All', ...courseCodes];
 
-      // ✅ Print for debugging
-      print('📊 Lecturer Courses: $_lecturerCourses');
-      print('📊 Students found: ${_students.length}');
-
+      _filteredStudents = List.from(_allStudents);
       setState(() => _isLoading = false);
     } catch (e) {
-      debugPrint('Error loading students: $e');
-      _showError('Error loading students: $e');
+      debugPrint('Error loading data: $e');
+      _showError('Error loading data: $e');
       setState(() => _isLoading = false);
     }
   }
 
-  void _filterStudents() {
-    setState(() {
-      _filteredStudents = _students.where((student) {
-        final name = student['displayName']?.toString().toLowerCase() ?? '';
-        final regNumber = student['regNumber']?.toString().toLowerCase() ?? '';
-        final query = _searchQuery.toLowerCase();
+  // ==================== HELPERS ====================
+  List<String> _getRegisteredUnits(Map<String, dynamic> student) {
+    final units = student['registeredUnits'];
+    if (units == null) return [];
 
-        // Search by name or registration number
-        final matchesSearch = name.contains(query) || regNumber.contains(query);
-
-        // Filter by course if not 'All'
-        if (_selectedFilter != 'All') {
-          final units = List<String>.from(student['registeredUnits'] ?? []);
-          return matchesSearch && units.contains(_selectedFilter);
+    if (units is List) {
+      if (units.isNotEmpty) {
+        if (units[0] is String) {
+          return List<String>.from(units);
+        } else if (units[0] is Map) {
+          return units
+              .map((e) => (e as Map<String, dynamic>)['code']?.toString() ?? '')
+              .where((e) => e.isNotEmpty)
+              .toList();
         }
+      }
+    }
+    return [];
+  }
 
-        return matchesSearch;
-      }).toList();
+  void _applyFilters() {
+    setState(() {
+      // ✅ Apply filter (All / Course)
+      if (_selectedFilter == 'All') {
+        _filteredStudents = List.from(_allStudents);
+      } else {
+        _filteredStudents = _allStudents.where((student) {
+          final studentCourse = student['courseCode']?.toString() ?? '';
+          return studentCourse == _selectedFilter;
+        }).toList();
+      }
+
+      // ✅ Apply search (Name / Reg Number)
+      if (_searchQuery.isNotEmpty) {
+        final query = _searchQuery.toLowerCase();
+        _filteredStudents = _filteredStudents.where((student) {
+          final name = student['displayName']?.toString().toLowerCase() ?? '';
+          final regNumber =
+              student['regNumber']?.toString().toLowerCase() ?? '';
+          return name.contains(query) || regNumber.contains(query);
+        }).toList();
+      }
     });
-  }
-
-  Future<void> _generateQRCode(String studentId, String studentName) async {
-    // ✅ This will be implemented in the QR Code feature
-    // For now, show a dialog
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Generate QR Code'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.qr_code, size: 80, color: AppColors.primary),
-            const SizedBox(height: 16),
-            Text('Generate QR Code for:'),
-            Text(
-              studentName,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'This QR code will be shared with the student for attendance.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _showMessage('QR Code generated for $studentName');
-            },
-            child: const Text('Generate'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
   }
 
   void _showError(String message) {
@@ -185,6 +165,7 @@ class _LecturerStudentsScreenState extends State<LecturerStudentsScreen> {
     }
   }
 
+  // ==================== BUILD ====================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -195,7 +176,7 @@ class _LecturerStudentsScreenState extends State<LecturerStudentsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadStudents,
+            onPressed: _loadData,
           ),
         ],
       ),
@@ -207,274 +188,241 @@ class _LecturerStudentsScreenState extends State<LecturerStudentsScreen> {
             colors: [AppColors.primary, AppColors.secondary],
           ),
         ),
-        child: Column(
-          children: [
-            // ✅ Filter and Search Bar
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
                 children: [
-                  // Search
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Search students...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      fillColor: Colors.white,
-                      filled: true,
+                  // ✅ Unit Header
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    color: Colors.white,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '📚 $_unitCode - $_unitName',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _lecturerName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
                     ),
-                    onChanged: (value) {
-                      _searchQuery = value;
-                      _filterStudents();
-                    },
                   ),
-                  const SizedBox(height: 8),
-                  // Course Filter
-                  if (_lecturerCourses.isNotEmpty) ...[
-                    SingleChildScrollView(
+
+                  // ✅ Search Bar
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    color: Colors.white,
+                    child: TextField(
+                      decoration: InputDecoration(
+                        hintText: '🔍 Search by Name or Registration Number...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  setState(() {
+                                    _searchQuery = '';
+                                    _applyFilters();
+                                  });
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                      onChanged: (value) {
+                        _searchQuery = value;
+                        _applyFilters();
+                      },
+                    ),
+                  ),
+
+                  // ✅ Filter Buttons
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    color: Colors.white,
+                    child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
-                        children: [
-                          FilterChip(
-                            label: const Text('All'),
-                            selected: _selectedFilter == 'All',
-                            onSelected: (selected) {
-                              setState(() {
-                                _selectedFilter = 'All';
-                                _filterStudents();
-                              });
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          ..._lecturerCourses.map((course) {
-                            return FilterChip(
-                              label: Text(course),
-                              selected: _selectedFilter == course,
+                        children: _availableFilters.map((filter) {
+                          final isSelected = _selectedFilter == filter;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              label: Text(filter),
+                              selected: isSelected,
                               onSelected: (selected) {
                                 setState(() {
-                                  _selectedFilter = selected ? course : 'All';
-                                  _filterStudents();
+                                  _selectedFilter = selected ? filter : 'All';
+                                  _applyFilters();
                                 });
                               },
-                            );
-                          }),
-                        ],
+                              selectedColor: AppColors.primary,
+                              backgroundColor: Colors.grey.shade100,
+                              labelStyle: TextStyle(
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.grey[800],
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ),
-                  ],
+                  ),
+
+                  // ✅ Student Count
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${_filteredStudents.length} students found',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (_selectedFilter != 'All')
+                          Text(
+                            'Filter: $_selectedFilter',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // ✅ Student List
+                  Expanded(
+                    child: _filteredStudents.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.people_outline,
+                                  size: 64,
+                                  color: Colors.white.withValues(alpha: 0.5),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  _allStudents.isEmpty
+                                      ? 'No students registered for this unit'
+                                      : 'No students match your search',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.8),
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                if (_searchQuery.isNotEmpty)
+                                  TextButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _searchQuery = '';
+                                        _applyFilters();
+                                      });
+                                    },
+                                    child: const Text(
+                                      'Clear Search',
+                                      style: TextStyle(color: Colors.white70),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _filteredStudents.length,
+                            itemBuilder: (context, index) {
+                              final student = _filteredStudents[index];
+                              final courseCode =
+                                  student['courseCode']?.toString() ?? 'N/A';
+                              final regNumber =
+                                  student['regNumber']?.toString() ?? 'N/A';
+                              final name = student['displayName']?.toString() ??
+                                  'Unknown';
+
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: AppColors.primary
+                                        .withValues(alpha: 0.1),
+                                    child: Text(
+                                      name.isNotEmpty
+                                          ? name[0].toUpperCase()
+                                          : 'S',
+                                      style: const TextStyle(
+                                        color: AppColors.primary,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'Reg: $regNumber',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  trailing: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      courseCode,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
                 ],
               ),
-            ),
-
-            // ✅ Student Count
-            if (!_isLoading) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  '${_filteredStudents.length} students found',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // ✅ Student List
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _filteredStudents.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.people_outline,
-                                size: 64,
-                                color: Colors.white.withValues(alpha: 0.5),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _lecturerCourses.isEmpty
-                                    ? 'No courses assigned to you'
-                                    : 'No students registered in your courses',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              if (_lecturerCourses.isEmpty)
-                                Text(
-                                  'Contact admin to assign courses to you',
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.6),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _filteredStudents.length,
-                          itemBuilder: (context, index) {
-                            final student = _filteredStudents[index];
-                            final units = List<String>.from(
-                                student['registeredUnits'] ?? []);
-
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: ExpansionTile(
-                                leading: CircleAvatar(
-                                  backgroundColor:
-                                      AppColors.primary.withValues(alpha: 0.1),
-                                  child: Text(
-                                    student['displayName']?.substring(0, 1) ??
-                                        'S',
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                title: Text(
-                                  student['displayName'] ?? 'Unknown',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Reg: ${student['regNumber'] ?? 'N/A'}',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    if (student['course'] != null)
-                                      Text(
-                                        'Course: ${student['course']}',
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                  ],
-                                ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.qr_code,
-                                      color: Colors.blue),
-                                  onPressed: () => _generateQRCode(
-                                    student['id'],
-                                    student['displayName'] ?? 'Student',
-                                  ),
-                                  tooltip: 'Generate QR Code',
-                                ),
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Registered Units:',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        if (units.isNotEmpty)
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 8,
-                                            children: units.map((unit) {
-                                              final isTaughtByLecturer =
-                                                  _lecturerCourses
-                                                      .contains(unit);
-                                              return Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 4,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: isTaughtByLecturer
-                                                      ? Colors.green.shade100
-                                                      : Colors.grey.shade200,
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  border: Border.all(
-                                                    color: isTaughtByLecturer
-                                                        ? Colors.green
-                                                        : Colors.grey,
-                                                  ),
-                                                ),
-                                                child: Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Text(
-                                                      unit,
-                                                      style: TextStyle(
-                                                        fontSize: 12,
-                                                        color:
-                                                            isTaughtByLecturer
-                                                                ? Colors.green
-                                                                    .shade700
-                                                                : Colors.grey
-                                                                    .shade700,
-                                                      ),
-                                                    ),
-                                                    if (isTaughtByLecturer) ...[
-                                                      const SizedBox(width: 4),
-                                                      Icon(
-                                                        Icons.check_circle,
-                                                        size: 14,
-                                                        color: Colors
-                                                            .green.shade700,
-                                                      ),
-                                                    ],
-                                                  ],
-                                                ),
-                                              );
-                                            }).toList(),
-                                          )
-                                        else
-                                          const Text(
-                                            'No units registered',
-                                            style: TextStyle(
-                                              color: Colors.grey,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Status: ${student['unitsRegistered'] == true ? "✅ Registered" : "❌ Not Registered"}',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: student['unitsRegistered'] ==
-                                                    true
-                                                ? Colors.green
-                                                : Colors.red,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-            ),
-          ],
-        ),
       ),
     );
   }

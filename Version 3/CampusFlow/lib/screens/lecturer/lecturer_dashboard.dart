@@ -38,7 +38,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
   List<String> _lecturerCourses = [];
 
   // ✅ Screens - built AFTER data loads
-  late List<Widget> _screens;
+  late final List<Widget> _screens;
 
   final NotificationService _notificationService = NotificationService();
 

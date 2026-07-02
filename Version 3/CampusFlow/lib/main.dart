@@ -5,18 +5,31 @@ import 'package:campus_flow/features/auth/screens/login_screen.dart';
 import 'firebase_options.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:campus_flow/services/preferences_service.dart';
+import 'package:campus_flow/services/sync_service.dart';
+import 'package:campus_flow/features/input_demo/screens/input_demo_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // ✅ Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
-  // ✅ Uncomment this line to run the update once
-  // await syncFirestoreUsersToAuth();
-  // await updateStudentData();
-
+  // ✅ Initialize Preferences
   final prefs = PreferencesService();
   await prefs.init();
+
+  // ✅ Initialize Sync Service
+  final syncService = SyncService();
+
+  // ✅ Start auto-sync listener
+  syncService.startAutoSync();
+
+  // ✅ Run sync on startup (if internet is available)
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    syncService.syncAttendance();
+  });
 
   runApp(const CampusFlowApp());
 }
@@ -35,6 +48,9 @@ class CampusFlowApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const LoginScreen(),
+      routes: {
+        '/input-demo': (context) => const InputDemoScreen(),
+      },
     );
   }
 }
@@ -48,7 +64,7 @@ Future<void> syncFirestoreUsersToAuth() async {
     // Get all students from Firestore
     final students = await firestore.collection('students').get();
 
-    print('📊 Found ${students.docs.length} students in Firestore');
+    debugPrint('📊 Found ${students.docs.length} students in Firestore');
 
     for (var doc in students.docs) {
       final data = doc.data();
@@ -57,15 +73,11 @@ Future<void> syncFirestoreUsersToAuth() async {
       final displayName = data['displayName'] as String? ?? 'Student';
 
       if (email == null || email.isEmpty) {
-        print('⚠️ Skipping student with no email: $displayName');
+        debugPrint('⚠️ Skipping student with no email: $displayName');
         continue;
       }
 
       try {
-        // Check if user already exists in Auth
-        // We can try to get user by email using admin SDK, but from client side we'll try to create
-        // If user exists, this will throw an error which we'll catch
-
         // ✅ Generate a temporary password using regNumber or default
         final tempPassword =
             regNumber != null ? '$regNumber@2024' : 'Student@2024';
@@ -76,7 +88,7 @@ Future<void> syncFirestoreUsersToAuth() async {
           password: tempPassword,
         );
 
-        print('✅ Created Auth user: $email with password: $tempPassword');
+        debugPrint('✅ Created Auth user: $email with password: $tempPassword');
 
         // Update Firestore with the temporary password
         await doc.reference.update({
@@ -85,16 +97,16 @@ Future<void> syncFirestoreUsersToAuth() async {
         });
       } catch (e) {
         if (e.toString().contains('email-already-in-use')) {
-          print('⏭️ User already exists in Auth: $email');
+          debugPrint('⏭️ User already exists in Auth: $email');
         } else {
-          print('❌ Error creating $email: $e');
+          debugPrint('❌ Error creating $email: $e');
         }
       }
     }
 
-    print('✅ Sync complete!');
+    debugPrint('✅ Sync complete!');
   } catch (e) {
-    print('❌ Error syncing users: $e');
+    debugPrint('❌ Error syncing users: $e');
   }
 }
 
@@ -104,7 +116,7 @@ Future<void> updateStudentData() async {
     final firestore = FirebaseFirestore.instance;
     final students = await firestore.collection('students').get();
 
-    print('📊 Found ${students.docs.length} students');
+    debugPrint('📊 Found ${students.docs.length} students');
 
     for (var doc in students.docs) {
       final data = doc.data();
@@ -138,13 +150,14 @@ Future<void> updateStudentData() async {
 
       if (needsUpdate) {
         await doc.reference.update(updates);
-        print('✅ Updated student: ${data['displayName'] ?? 'Unknown'}');
+        debugPrint('✅ Updated student: ${data['displayName'] ?? 'Unknown'}');
       } else {
-        print('⏭️ No update needed for: ${data['displayName'] ?? 'Unknown'}');
+        debugPrint(
+            '⏭️ No update needed for: ${data['displayName'] ?? 'Unknown'}');
       }
     }
-    print('✅ All students updated successfully!');
+    debugPrint('✅ All students updated successfully!');
   } catch (e) {
-    print('❌ Error updating students: $e');
+    debugPrint('❌ Error updating students: $e');
   }
 }

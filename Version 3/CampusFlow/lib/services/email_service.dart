@@ -1,5 +1,6 @@
 import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
+import 'package:flutter/foundation.dart';
 
 class EmailService {
   static Future<void> sendCredentials({
@@ -77,9 +78,9 @@ Campus Flow Team
         ..text = body;
 
       final sendReport = await send(message, smtpServer);
-      print('✅ Email sent to $email: ${sendReport.toString()}');
+      debugPrint('✅ Email sent to $email: ${sendReport.toString()}');
     } catch (e) {
-      print('❌ Failed to send email to $email: $e');
+      debugPrint('❌ Failed to send email to $email: $e');
       rethrow;
     }
   }
@@ -100,7 +101,7 @@ Campus Flow Team
         // Wait a bit between emails to avoid rate limiting
         await Future.delayed(const Duration(seconds: 1));
       } catch (e) {
-        print('❌ Failed to send email to ${user['email']}: $e');
+        debugPrint('❌ Failed to send email to ${user['email']}: $e');
       }
     }
   }

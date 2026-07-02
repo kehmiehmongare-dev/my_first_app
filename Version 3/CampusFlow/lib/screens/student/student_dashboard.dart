@@ -10,6 +10,8 @@ import 'package:campus_flow/features/student/screens/student_profile_screen.dart
 import 'package:campus_flow/features/student/screens/unit_registration_screen.dart';
 import 'package:campus_flow/features/auth/screens/login_screen.dart';
 import 'package:campus_flow/features/payments/widgets/payment_button.dart';
+import 'package:campus_flow/services/sync_service.dart';
+import 'package:campus_flow/services/offline_attendance_db.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -38,13 +40,19 @@ class _StudentDashboardState extends State<StudentDashboard> {
   List<String> _registeredUnits = [];
   String _tempSessionId = '';
 
-  // ✅ Screens are built ONCE in initState
+  // Sync status
+  int _unsyncedCount = 0;
+  bool _hasInternet = true;
+
+  // Screens
   late List<Widget> _screens;
+
+  final SyncService _syncService = SyncService();
+  final OfflineAttendanceDB _db = OfflineAttendanceDB();
 
   @override
   void initState() {
     super.initState();
-    // ✅ Build the screens with a loading indicator on the home tab
     _screens = [
       const Center(child: CircularProgressIndicator()),
       const AttendanceScreen(),
@@ -52,15 +60,32 @@ class _StudentDashboardState extends State<StudentDashboard> {
       const FeesScreen(),
       const ProfileScreen(),
     ];
-    // ✅ Load the data AFTER the screens are built
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserData();
+      _checkSyncStatus();
     });
+  }
+
+  // ==================== CHECK SYNC STATUS ====================
+  Future<void> _checkSyncStatus() async {
+    final status = await _syncService.getSyncStatus();
+    setState(() {
+      _hasInternet = status['hasInternet'] ?? false;
+      _unsyncedCount = status['unsyncedCount'] ?? 0;
+    });
+
+    // ✅ Auto-sync if there are unsynced records and internet is available
+    if (_hasInternet && _unsyncedCount > 0) {
+      await _syncService.syncAttendance();
+      final newStatus = await _syncService.getSyncStatus();
+      setState(() {
+        _unsyncedCount = newStatus['unsyncedCount'] ?? 0;
+      });
+    }
   }
 
   // ==================== LOAD USER DATA ====================
   Future<void> _loadUserData() async {
-    // ✅ Don't reload if already loading
     if (_isLoading) return;
 
     setState(() {
@@ -71,21 +96,18 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-
       if (user == null) {
         setState(() {
           _hasError = true;
           _errorMessage = 'Please login again.';
           _isLoading = false;
         });
-        // ✅ Update the home screen to show error
         _updateHomeScreenWithError();
         return;
       }
 
       _userUid = user.uid;
 
-      // ✅ Attempt to get student data with a 5-second timeout
       final doc = await FirebaseFirestore.instance
           .collection('students')
           .doc(user.uid)
@@ -97,9 +119,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
         },
       );
 
-      // ✅ Check if the document exists
       if (!doc.exists) {
-        // ✅ If not found by UID, try a fallback query by email
         final fallbackQuery = await FirebaseFirestore.instance
             .collection('students')
             .where('email', isEqualTo: user.email)
@@ -114,21 +134,14 @@ class _StudentDashboardState extends State<StudentDashboard> {
           _updateHomeScreenWithError();
           return;
         }
-        // ✅ Use the fallback data
         _parseStudentData(fallbackQuery.docs.first.data());
       } else {
-        // ✅ Use the primary data
         _parseStudentData(doc.data() as Map<String, dynamic>);
       }
 
-      // ✅ Data loaded successfully, update the home screen
       _updateHomeScreenWithData();
-
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     } catch (e) {
-      // ✅ Catch any error and show it
       setState(() {
         _hasError = true;
         _errorMessage = 'Error: ${e.toString()}';
@@ -170,14 +183,12 @@ class _StudentDashboardState extends State<StudentDashboard> {
     }
   }
 
-  // ✅ Update the home screen with loaded data
   void _updateHomeScreenWithData() {
     setState(() {
       _screens[0] = _buildHomeScreen();
     });
   }
 
-  // ✅ Update the home screen with an error message
   void _updateHomeScreenWithError() {
     setState(() {
       _screens[0] = Center(
@@ -400,6 +411,28 @@ class _StudentDashboardState extends State<StudentDashboard> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      // ✅ Check if we have internet
+      final hasInternet = await _syncService.hasInternet();
+
+      if (!hasInternet) {
+        // ✅ OFFLINE: Save to SQLite
+        final week = await _calculateWeek();
+        await _db.saveAttendance({
+          'studentId': user.uid,
+          'studentName': _userName,
+          'regNumber': _userRegNumber,
+          'unitCode': 'Unknown', // Will be extracted from QR
+          'sessionId': sessionId,
+          'week': week,
+          'qrData': sessionId,
+        });
+        _showMessage('📴 Attendance saved offline! Will sync when online.',
+            Colors.orange);
+        await _checkSyncStatus();
+        return;
+      }
+
+      // ✅ ONLINE: Mark directly
       final sessionDoc = await FirebaseFirestore.instance
           .collection('attendance_sessions')
           .doc(sessionId)
@@ -427,12 +460,15 @@ class _StudentDashboardState extends State<StudentDashboard> {
         'students': FieldValue.arrayUnion([user.uid]),
       });
 
+      final week = await _calculateWeek();
+
       await FirebaseFirestore.instance.collection('attendance').add({
         'studentId': user.uid,
         'studentName': _userName,
         'studentRegNumber': _userRegNumber,
         'courseCode': sessionData['courseCode'],
         'sessionId': sessionId,
+        'week': week,
         'date': DateTime.now().toIso8601String(),
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'present',
@@ -444,6 +480,14 @@ class _StudentDashboardState extends State<StudentDashboard> {
     } catch (e) {
       _showMessage('Error marking attendance: $e', Colors.red);
     }
+  }
+
+  Future<int> _calculateWeek() async {
+    final semesterStart = DateTime(2024, 1, 15);
+    final now = DateTime.now();
+    final difference = now.difference(semesterStart);
+    final week = (difference.inDays / 7).floor() + 1;
+    return week.clamp(1, 14);
   }
 
   Future<void> _updateAttendanceRate() async {
@@ -476,6 +520,156 @@ class _StudentDashboardState extends State<StudentDashboard> {
     } catch (e) {
       debugPrint('Error updating attendance rate: $e');
     }
+  }
+
+  // ==================== ATTENDANCE PROGRESS WIDGET ====================
+  Widget _buildAttendanceProgress() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.trending_up, color: AppColors.primary),
+                const SizedBox(width: 8),
+                const Text(
+                  '📊 Attendance Progress',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                _buildSyncStatus(),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_registeredUnits.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Text(
+                  'No units registered yet.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              )
+            else
+              ..._registeredUnits.map((unit) => _buildUnitProgress(unit)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSyncStatus() {
+    if (_unsyncedCount > 0 && _hasInternet) {
+      return Row(
+        children: [
+          const Icon(Icons.sync, color: Colors.blue, size: 16),
+          const SizedBox(width: 4),
+          Text(
+            'Syncing...',
+            style: TextStyle(fontSize: 12, color: Colors.blue[600]),
+          ),
+        ],
+      );
+    } else if (_unsyncedCount > 0) {
+      return Row(
+        children: [
+          const Icon(Icons.cloud_off, color: Colors.orange, size: 16),
+          const SizedBox(width: 4),
+          Text(
+            '$_unsyncedCount offline',
+            style: TextStyle(fontSize: 12, color: Colors.orange[600]),
+          ),
+        ],
+      );
+    } else if (_hasInternet) {
+      return Row(
+        children: [
+          const Icon(Icons.cloud_done, color: Colors.green, size: 16),
+          const SizedBox(width: 4),
+          Text(
+            'Synced',
+            style: TextStyle(fontSize: 12, color: Colors.green[600]),
+          ),
+        ],
+      );
+    } else {
+      return const Icon(Icons.wifi_off, color: Colors.red, size: 16);
+    }
+  }
+
+  Widget _buildUnitProgress(String unitCode) {
+    return FutureBuilder<DocumentSnapshot>(
+      future:
+          FirebaseFirestore.instance.collection('students').doc(_userUid).get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const SizedBox();
+        }
+
+        final data = snapshot.data!.data() as Map<String, dynamic>;
+        final attendance = data['attendance'] ?? {};
+        final unitData = attendance[unitCode] ??
+            {'percentage': 0, 'attended': 0, 'totalClasses': 14};
+
+        final percentage = (unitData['percentage'] ?? 0).toDouble();
+        final attended = unitData['attended'] ?? 0;
+        final total = unitData['totalClasses'] ?? 14;
+
+        return Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    unitCode,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${percentage.toStringAsFixed(1)}%',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: percentage >= 75 ? Colors.green : Colors.red,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '$attended/$total',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: percentage / 100,
+                minHeight: 8,
+                backgroundColor: Colors.grey[200],
+                color: percentage >= 75 ? Colors.green : Colors.red,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+        );
+      },
+    );
   }
 
   // ==================== BUILD HOME SCREEN ====================
@@ -606,6 +800,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+
+              // ✅ Attendance Progress Section
+              _buildAttendanceProgress(),
               const SizedBox(height: 16),
 
               // Course Section
@@ -899,7 +1097,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
   // ==================== BUILD ====================
   @override
   Widget build(BuildContext context) {
-    // ✅ If there's a critical error, show it, but also allow retry.
     if (_hasError) {
       return Scaffold(
         appBar: AppBar(

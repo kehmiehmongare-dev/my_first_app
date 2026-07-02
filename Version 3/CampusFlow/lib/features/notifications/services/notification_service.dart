@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/notification_model.dart';
+import 'package:flutter/foundation.dart';
 
 class NotificationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -24,10 +25,8 @@ class NotificationService {
       String senderName = 'Lecturer';
       String senderRole = 'lecturer';
 
-      final lecturerDoc = await _firestore
-          .collection('lecturers')
-          .doc(user.uid)
-          .get();
+      final lecturerDoc =
+          await _firestore.collection('lecturers').doc(user.uid).get();
 
       if (lecturerDoc.exists) {
         final data = lecturerDoc.data() as Map<String, dynamic>;
@@ -54,9 +53,9 @@ class NotificationService {
           .doc(notification.id)
           .set(notification.toJson());
 
-      print('✅ Notification sent: $title');
+      debugPrint('✅ Notification sent: $title');
     } catch (e) {
-      print('❌ Error sending notification: $e');
+      debugPrint('❌ Error sending notification: $e');
       throw Exception('Failed to send notification');
     }
   }
@@ -74,10 +73,10 @@ class NotificationService {
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs.map((doc) {
-            return NotificationModel.fromJson(doc.data(), doc.id);
-          }).toList();
-        });
+      return snapshot.docs.map((doc) {
+        return NotificationModel.fromJson(doc.data(), doc.id);
+      }).toList();
+    });
   }
 
   // ✅ Get unread count for badge
@@ -98,14 +97,11 @@ class NotificationService {
   // ✅ Mark notification as read
   Future<void> markAsRead(String notificationId) async {
     try {
-      await _firestore
-          .collection('notifications')
-          .doc(notificationId)
-          .update({
-            'isRead': true,
-          });
+      await _firestore.collection('notifications').doc(notificationId).update({
+        'isRead': true,
+      });
     } catch (e) {
-      print('Error marking notification as read: $e');
+      debugPrint('Error marking notification as read: $e');
     }
   }
 
@@ -128,19 +124,16 @@ class NotificationService {
 
       await batch.commit();
     } catch (e) {
-      print('Error marking all as read: $e');
+      debugPrint('Error marking all as read: $e');
     }
   }
 
   // ✅ Delete notification (lecturer only)
   Future<void> deleteNotification(String notificationId) async {
     try {
-      await _firestore
-          .collection('notifications')
-          .doc(notificationId)
-          .delete();
+      await _firestore.collection('notifications').doc(notificationId).delete();
     } catch (e) {
-      print('Error deleting notification: $e');
+      debugPrint('Error deleting notification: $e');
     }
   }
 
@@ -162,7 +155,7 @@ class NotificationService {
       final studentIds = studentsSnapshot.docs.map((doc) => doc.id).toList();
 
       if (studentIds.isEmpty) {
-        print('⚠️ No students found for course: $courseCode');
+        debugPrint('⚠️ No students found for course: $courseCode');
         return;
       }
 
@@ -175,9 +168,9 @@ class NotificationService {
         isImportant: isImportant,
       );
 
-      print('✅ Notification sent to ${studentIds.length} students');
+      debugPrint('✅ Notification sent to ${studentIds.length} students');
     } catch (e) {
-      print('❌ Error sending to course students: $e');
+      debugPrint('❌ Error sending to course students: $e');
       throw Exception('Failed to send notification');
     }
   }
